@@ -133,18 +133,20 @@ class BoatRaceScraper:
                     match_w = re.search(r'(\d{2}\.\d)kg', txt_full)
                     if match_w: weight = float(match_w.group(1))
                     
-                    # Branch: 2nd DIV usually has "Tokyo A1"
                     divs = td2.select("div")
-                    if len(divs) >= 2:
-                        br_txt = divs[1].get_text(strip=True)
-                        # Extract first word (valid branch)
-                        # e.g. "Saitama A1" -> Saitama
-                        # Remove digits just in case
-                        branch = re.sub(r'\d+', '', br_txt.split()[0])
+                    
+                    # Robust Branch Extraction using white-list
+                    prefectures = r"(群馬|埼玉|東京|福井|静岡|愛知|三重|滋賀|大阪|兵庫|徳島|香川|岡山|広島|山口|福岡|佐賀|長崎)"
+                    # Search entire cell text for a prefecture
+                    m = re.search(prefectures, txt_full)
+                    if m:
+                        branch = m.group(1)
                     else:
-                        # Fallback
-                        m = re.search(r'([^\x00-\x7F]+)(?:A1|A2|B1|B2)', txt_full)
-                        if m: branch = m.group(1).strip()
+                        # Fallback: parsing div structure
+                        if len(divs) >= 2:
+                            br_txt = divs[1].get_text(strip=True)
+                            branch = br_txt.split()[0]
+                            branch = re.sub(r'\d+', '', branch)
                 except: pass
 
                 # Win Rates (National & Local)
@@ -309,10 +311,30 @@ class FeatureEngineer:
             }, inplace=True)
 
             # 2. Racer Venue Stats
-            if 'Venue' in r_venue.columns:
-                df = df.merge(r_venue, left_on=['racer_id', 'venue_name'], right_on=['RacerID', 'Venue'], how='left')
-            else:
-                df = df.merge(r_venue, left_on=['racer_id'], right_on=['RacerID'], how='left')
+            # 2. Racer Venue Stats
+            # static_racer_venue.csv uses Venue CODE (e.g. '01', '07'). s.Venue is likely code.
+            # df has 'venue_name' (e.g. '蒲郡'). Need to map to code.
+            # Reverse the venue_map (Code->Name) to (Name->Code)
+            name_to_code = {v: k for k, v in venue_map.items()} # venue_map is likely global?
+            # It's defined in main scope. FeatureEngineer might not see it if not passed.
+            # Let's define a local map or pass it.
+            # Standard map:
+            name_code_map = {
+                '桐生': 1, '戸田': 2, '江戸川': 3, '平和島': 4, '多摩川': 5,
+                '浜名湖': 6, '蒲郡': 7, '常滑': 8, '津': 9, '三国': 10,
+                'びわこ': 11, '住之江': 12, '尼崎': 13, '鳴門': 14, '丸亀': 15,
+                '児島': 16, '宮島': 17, '徳山': 18, '下関': 19, '若松': 20,
+                '芦屋': 21, '福岡': 22, '唐津': 23, '大村': 24
+            }
+            
+            df['venue_code_int'] = df['venue_name'].map(name_code_map).fillna(0).astype(int)
+            # CSV Venue might be '01' (str) or 1 (int).
+            # Let's check CSV content type. `01` implies string.
+            # Let's try both or ensure int.
+            # r_venue['Venue'] should be int if we cast it.
+            r_venue['Venue'] = pd.to_numeric(r_venue['Venue'], errors='coerce').fillna(0).astype(int)
+            
+            df = df.merge(r_venue, left_on=['racer_id', 'venue_code_int'], right_on=['RacerID', 'Venue'], how='left')
             
             # Rename static WinRate
             if 'local_win_rate' in r_venue.columns:
