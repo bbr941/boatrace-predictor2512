@@ -16,6 +16,10 @@ import sys
 # --- Configuration ---
 st.set_page_config(page_title="BoatRace AI Predictor", layout="wide")
 
+if st.sidebar.button("Clear Cache"):
+    st.cache_data.clear()
+    st.success("Cache Cleared!")
+
 MODEL_PATH = 'lgb_ranker.txt'
 DATA_DIR = 'app_data'
 HEADERS = {
@@ -376,13 +380,20 @@ class FeatureEngineer:
             # st.error(f"Static Data Error: {e}")
             pass
         
-        # Fill NaNs from merges
-        df = df.fillna(0)
+        if st.checkbox("Show Debug Info"):
+            st.write("Columns:", df.columns.tolist())
+            if 'nige_count' in df.columns:
+                 st.write("Nige Count (First 1):", df['nige_count'].iloc[0])
+            else:
+                 st.error("Nige Count Column Missing!")
         
         # Failsafe: Ensure critical columns exist (even if CSV merge failed)
-        required_cols = ['makuri_count', 'nige_count', 'sashi_count', 'nat_win_rate', 'course_run_count']
+        required_cols = ['makuri_count', 'nige_count', 'sashi_count', 'nat_win_rate', 'course_run_count', 'local_win_rate']
         for c in required_cols:
-            if c not in df.columns: df[c] = 0.0
+            if c not in df.columns: 
+                df[c] = 0.0
+                if st.checkbox(f"Warn missing {c}", value=False):
+                    st.warning(f"Feature '{c}' missing. Filled 0.")
         
         # --- Feature Engineering (Sync with make_data_set.py) ---
         
