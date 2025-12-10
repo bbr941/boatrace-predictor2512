@@ -85,16 +85,25 @@ class BoatRaceScraper:
                     boat_before[i+1] = {'ex_time': BoatRaceScraper.parse_float(tds[4].text), 'st': 0.20}
             # ST
             for row in soup_before.select("table.is-w238 tbody tr"):
-                bn = row.select_one("span.table1_boatImage1Number")
-                if bn:
-                    b = int(bn.text.strip())
+                bn_span = row.select_one("span.table1_boatImage1Number")
+                if bn_span:
+                    b = int(bn_span.text.strip())
                     st_span = row.select_one("span.table1_boatImage1Time")
                     val = 0.20
                     if st_span:
-                        txt = st_span.text.strip().replace('F', '-0.')
-                        if 'L' in txt: val = 1.0 # Late
-                        elif 'F' in txt: val = -0.05 # Flying
-                        else: val = float(txt)
+                        txt_raw = st_span.text.strip()
+                        # Handle F/L
+                        if 'L' in txt_raw: val = 1.0
+                        elif 'F' in txt_raw:
+                            try:
+                                # F.01 -> -0.01
+                                sub = txt_raw.replace('F', '')
+                                val = -float(sub)
+                            except: val = -0.05
+                        else:
+                            # .12 -> 0.12
+                            val = BoatRaceScraper.parse_float(txt_raw)
+                            
                     if b in boat_before: boat_before[b]['st'] = val
                     else: boat_before[b] = {'st': val, 'ex_time': 6.8}
         except: pass
@@ -113,21 +122,64 @@ class BoatRaceScraper:
                     racer_id = int(re.search(r'(\d{4})', txt).group(1))
                 except: pass
 
-                # Branch (Prefecture)
+                # Branch (Prefecture) & Weight
                 branch = 'Unknown'
+                weight = 52.0
                 try:
                     txt = tb.select("td")[2].get_text(separator=' ')
-                    # Look for text like "群馬" or "東京"
-                    # Simple heuristic: regex for Japanese chars
-                    pass
+                    # "4350 篠崎 仁志 埼玉 52.0kg ..."
+                    match = re.search(r'(\d{2}\.\d)kg', txt)
+                    if match: weight = float(match.group(1))
+                except: pass
+
+                # Win Rates (National & Local)
+                # Col 3: F0 L0 0.14 6.89 50.5 ...
+                nat_win_rate = 0.0
+                local_win_rate = 0.0
+                try:
+                    col3_txt = tb.select("td")[3].get_text(" ", strip=True)
+                    # Use broad regex for any number
+                    # Remove F/L to avoid parsing 0 from F0
+                    clean_txt = re.sub(r'[FLK]\d+', '', col3_txt) 
+                    nums = re.findall(r'(\d+(?:\.\d+)?)', clean_txt)
+                    
+                    if len(nums) >= 5:
+                        # [AvgST, NatWin, Nat2, LocWin, Loc2]
+                        nat_win_rate = float(nums[1])
+                        local_win_rate = float(nums[3])
+                    elif len(nums) >= 4:
+                        # [NatWin, Nat2, LocWin, Loc2]
+                        nat_win_rate = float(nums[0])
+                        local_win_rate = float(nums[2])
+                except: pass
+
+                # Prior Results (Series Results)
+                # Usually the last column or Col 8
+                prior_results = ""
+                try:
+                    # Last column
+                    prior_results = tb.select("td")[-1].get_text(" ", strip=True)
                 except: pass
 
                 # Rates
+                # Column 6: Motor (No / Rate) e.g. "43 32.5%"
+                # Column 7: Boat (No / Rate) e.g. "14 31.0%"
+                tds = tb.select("td")
+                
                 motor = 30.0
-                try: motor = BoatRaceScraper.parse_float(tb.select("td")[6].get_text())
+                try:
+                    txt = tds[6].get_text(" ", strip=True).replace('%', '')
+                    parts = txt.split()
+                    if len(parts) >= 2: motor = float(parts[1])
+                    else: motor = float(parts[0])
                 except: pass
+                
                 boat = 30.0
-                try: boat = BoatRaceScraper.parse_float(tb.select("td")[7].get_text())
+                try:
+                    txt = tds[7].get_text(" ", strip=True).replace('%', '')
+                    parts = txt.split()
+                    if len(parts) >= 2: boat = float(parts[1])
+                    else: boat = float(parts[0])
                 except: pass
                 
                 row = {
@@ -142,8 +194,11 @@ class BoatRaceScraper:
                     'wind_direction': weather['wind_direction'],
                     'wind_speed': weather['wind_speed'],
                     'wave_height': weather['wave_height'],
-                    'prior_results': "3.5",
+                    'prior_results': prior_results,
                     'branch': branch,
+                    'weight': weight,
+                    'nat_win_rate': nat_win_rate,
+                    'local_win_rate': local_win_rate,
                     'makuri_count': 0, 'nige_count': 0
                 }
                 rows.append(row)
