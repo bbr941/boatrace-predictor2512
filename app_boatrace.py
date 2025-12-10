@@ -174,9 +174,20 @@ class BoatRaceScraper:
                     'wind_speed': weather_info['wind_speed'],
                     'wave_height': weather_info['wave_height'],
                     # Dummy for now (Needs robust parsing or API)
-                    'prior_results': "3.5", 
+                    'prior_results': "3.5",
+                    'branch': '', # Will fill later or parse
                     'nige_count': 0, 'makuri_count': 0 # Will be filled by static data if available
                 }
+                
+                # Try Parse Branch from text
+                try:
+                   txt = tb.get_text()
+                   # Simple heuristic: Branch is usually Prefecture or region name
+                   # But creating a full valid list is hard. 
+                   # data_fetcher uses regex on specific div.
+                   pass
+                except: pass
+
                 rows.append(row)
         except Exception as e:
             st.error(f"Race List parse error: {e}")
@@ -202,16 +213,7 @@ class FeatureEngineer:
             # Merges
             df = df.merge(r_course, left_on=['racer_id', 'pred_course'], right_on=['RacerID', 'Course'], how='left')
             df = df.merge(r_venue, left_on=['racer_id'], right_on=['RacerID'], how='left') 
-            # Note: r_venue usually has Venue col, but we just average if static data is simplified. 
-            # Or if static_racer_venue has 'Venue' col, we filter?
-            # For this demo app compliance, we assume static_racer_venue is PRE-FILTERED or pivot?
-            # Actually, static_racer_venue.csv exported by user likely contains ALL. 
-            # Let's check columns if we can. Assuming simple merge for now.
-            
             df = df.merge(v_course, left_on=['pred_course'], right_on=['course_number'], how='left')
-            # Again, need to filter v_course by venue_name?
-            # The static_venue_course.csv likely has venue_name.
-            
             df = df.merge(r_params, on='racer_id', how='left')
             
             df = df.fillna(0)
@@ -225,8 +227,6 @@ class FeatureEngineer:
             7: 135, 8: 180, 9: 180, 10: 225, 11: 225, 12: 270,
             13: 270, 14: 315, 15: 315, 16: 0
         }
-        # Note: Scraper returns 1-16. 
-        # 1=North(0), 5=East(90), 9=South(180), 13=West(270)
         
         venue_tailwind_from = {
              '桐生': 135, '戸田': 90, '江戸川': 180, '平和島': 180, '多摩川': 270,
@@ -244,29 +244,44 @@ class FeatureEngineer:
         df['wind_vector_lat'] = df['wind_speed'] * np.sin(angle_diff_rad)
         
         # --- Relative Stats ---
-        # Sort by Boat Number
         df = df.sort_values('boat_number')
-        
-        # Inner/Outer ST
         df['inner_st'] = df['exhibition_start_timing'].shift(1).fillna(0)
         df['outer_st'] = df['exhibition_start_timing'].shift(-1).fillna(0)
         df['slit_formation'] = df['exhibition_start_timing'] - ((df['inner_st']+df['outer_st'])/2)
         
-        # Tenji Z-score
         mean_t = df['exhibition_time'].mean()
         std_t = df['exhibition_time'].std()
         if std_t == 0: std_t = 1.0
         df['tenji_z_score'] = (mean_t - df['exhibition_time']) / std_t
         
-        # Mocking missing columns expected by model if they don't exist
+        # --- Mock Missing Columns (Matching Training Logic) ---
         expected_cols = [
             'series_avg_rank', 'makuri_rate', 'nige_rate', 'inner_st_gap', 
-            'anti_nige_potential', 'wall_strength', 'follow_potential'
+            'anti_nige_potential', 'wall_strength', 'follow_potential',
+            'branch' # Ensure branch exists
         ]
         for c in expected_cols:
-            if c not in df.columns: df[c] = 0.0
-            
-        return df
+            if c not in df.columns: 
+                if c == 'branch': df[c] = 'Unknown'
+                else: df[c] = 0.0
+                
+        # --- LightGBM Prep: Category & Ignore Cols ---
+        ignore_cols = [
+            'race_id', 'boat_number', 'racer_id', 'rank',
+            'venue_name', 'wind_direction', 'prior_results',
+            'syn_win_rate', 'exhibition_time' # exhibition_time might be kept? Check train_model. 
+            # train_model ignore_cols: race_id, boat_number, racer_id, rank, venue_name, wind_direction, prior_results, syn_win_rate.
+            # exhibition_time IS kept (it's numeric).
+        ]
+        
+        # Explicit drop of ignored cols
+        # Also need to ensure object cols are category
+        for col in df.columns:
+            if col in ignore_cols: continue
+            if df[col].dtype == 'object':
+                df[col] = df[col].astype('category')
+                
+        return df, ignore_cols
 
 # --- 3. Main App ---
 st.set_page_config(page_title="BoatRace AI Predictor", layout="wide")
@@ -304,13 +319,30 @@ if st.button("Analyze Race", type="primary"):
         
         # 2. Feature Engineering
         with st.spinner("Processing AI Features..."):
-            df_features = FeatureEngineer.process(df_race, venue_name)
+            df_features, ignore_list = FeatureEngineer.process(df_race, venue_name)
             
         # 3. Prediction
         with st.spinner("Running LightGBM Inference..."):
             try:
                 model = lgb.Booster(model_file=MODEL_PATH)
-                preds = model.predict(df_features.drop(columns=['race_id'], errors='ignore'))
+                # Filter columns used in training
+                # Best way: model.feature_name()
+                model_features = model.feature_name()
+                
+                # Check missing
+                missing_feats = [f for f in model_features if f not in df_features.columns]
+                if missing_feats:
+                    st.warning(f"Missing features filled with defaults: {missing_feats}")
+                    for mf in missing_feats:
+                        df_features[mf] = 0.0 # or appropriate default
+                        
+                # Predict using ONLY model features
+                X_pred = df_features[model_features]
+                
+                # Ensure categories match if possible? 
+                # LGBM handles int/category matching loosely if consistent.
+                
+                preds = model.predict(X_pred)
                 df_features['score'] = preds
             except Exception as e:
                 st.error(f"Prediction Error: {e}")
@@ -322,34 +354,32 @@ if st.button("Analyze Race", type="primary"):
         st.subheader("🤖 AI Prediction Ranking")
         
         rank_df = df_features[['boat_number', 'score']].sort_values('score', ascending=False)
-        rank_df['rank'] = range(1, 7)
+        rank_df['rank'] = range(1, len(rank_df) + 1)
         st.dataframe(rank_df.set_index('rank'))
         
         # 5. Betting Strategy (Top 5 Pattern)
         st.subheader("🎯 Recommended Strategy (Top 5 Pattern)")
         
         boats = rank_df['boat_number'].tolist()
-        # Simple Permutations of Top Boats? 
-        # Actually Pattern A (Top 5 Combinations) requires Combination Scoring.
-        # Approx: Just showing Top 3 boats Box?
-        # Or showing Top 5 combinations derived from Score?
-        # Score_Combo = Score(1) * Score(2) * Score(3)
         import itertools
-        combos = list(itertools.permutations(boats, 3)) # 120 combos sorted by boat priority?
-        # No, we need to sort combos by Sum/Product of scores.
-        
+        # Generate combos based on Score Product
         combo_scores = []
         boat_score_map = dict(zip(rank_df['boat_number'], rank_df['score']))
         
-        for c in combos:
-            s = boat_score_map[c[0]] * boat_score_map[c[1]] * boat_score_map[c[2]]
-            combo_scores.append({'combo': f"{c[0]}-{c[1]}-{c[2]}", 'score': s})
+        # Only if we have at least 3 boats
+        if len(boats) >= 3:
+            combos = list(itertools.permutations(boats, 3))
+            for c in combos:
+                s = boat_score_map[c[0]] * boat_score_map[c[1]] * boat_score_map[c[2]]
+                combo_scores.append({'combo': f"{c[0]}-{c[1]}-{c[2]}", 'score': s})
+                
+            combo_df = pd.DataFrame(combo_scores).sort_values('score', ascending=False).head(5)
             
-        combo_df = pd.DataFrame(combo_scores).sort_values('score', ascending=False).head(5)
-        
-        st.success("✅ BUY THESE 5 POINTS (Flat Bet)")
-        for idx, row in combo_df.iterrows():
-            st.metric(label=f"Rank {idx+1}", value=row['combo'])
+            st.success("✅ BUY THESE 5 POINTS (Flat Bet)")
+            for idx, row in combo_df.iterrows():
+                st.metric(label=f"Rank {idx+1}", value=row['combo'])
+        else:
+            st.warning("Not enough boats to generate 3-rentan combos.")
             
     else:
         st.error("Failed to load race data. Race might be invalid or cancelled.")
