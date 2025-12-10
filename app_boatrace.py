@@ -275,7 +275,7 @@ class FeatureEngineer:
         return df
 
     @staticmethod
-    def process(df, venue_name):
+    def process(df, venue_name, debug_mode=False):
         # Add missing venue_name column if not present (for mapping)
         df['venue_name'] = venue_name
         
@@ -380,7 +380,7 @@ class FeatureEngineer:
             # st.error(f"Static Data Error: {e}")
             pass
         
-        if st.checkbox("Show Debug Info"):
+        if debug_mode:
             st.write("Columns:", df.columns.tolist())
             if 'nige_count' in df.columns:
                  st.write("Nige Count (First 1):", df['nige_count'].iloc[0])
@@ -392,7 +392,7 @@ class FeatureEngineer:
         for c in required_cols:
             if c not in df.columns: 
                 df[c] = 0.0
-                if st.checkbox(f"Warn missing {c}", value=False):
+                if debug_mode:
                     st.warning(f"Feature '{c}' missing. Filled 0.")
         
         # --- Feature Engineering (Sync with make_data_set.py) ---
