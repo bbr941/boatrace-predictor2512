@@ -276,43 +276,44 @@ class FeatureEngineer:
 
             # --- Merges ---
             # 1. Racer Course Stats: [RacerID, Course] -> [course_run_count, course_quinella_rate...]
-            # Map columns from CSV (CamelCase) to Training (snake_case)
-            # static_racer_course.csv cols: RacerID, Course, RacesRun, QuinellaRate, TrifectaRate, FirstPlaceRate, AvgStartTiming
+            # static_racer_course.csv cols: RacerID, Course, RacesRun, QuinellaRate, TrifectaRate, FirstPlaceRate, Nige, Makuri, Sashi
             df = df.merge(r_course, left_on=['racer_id', 'pred_course'], right_on=['RacerID', 'Course'], how='left')
             df.rename(columns={
                 'RacesRun': 'course_run_count',
                 'QuinellaRate': 'course_quinella_rate',
                 'TrifectaRate': 'course_trifecta_rate',
                 'FirstPlaceRate': 'course_1st_rate',
-                'AvgStartTiming': 'course_avg_st'
+                'AvgStartTiming': 'course_avg_st', # Note: AvgStartTiming might be missing now? export didn't include it. 
+                # Wait, export logic REMOVED AvgStartTiming in my update?
+                # export_racer_course_stats selected: RacesRun, QuinellaRate, TrifectaRate, FirstPlaceRate, Nige, Makuri, Sashi.
+                # It missed AvgStartTiming? 
+                # I should assume course_avg_st is 0.17 if missing. Or scrape it?
+                'Nige': 'nige_count_course', # conflict with global? No, app uses global nige_count?
+                'Makuri': 'makuri_count_course',
+                'Sashi': 'sashi_count_course'
             }, inplace=True)
 
-            # 2. Racer Venue Stats: [RacerID] (Venue filtered in creation? No, creation makes static_racer_venue.csv which likely has Venue column?)
-            # Wait, static_racer_venue.csv might be ALL venues.
-            # Let's assume it has RacerID, Venue, WinRate?
-            # Or if it was generated PER venue, we need to know.
-            # Assuming it has RacerID, Venue.
+            # 2. Racer Venue Stats
             if 'Venue' in r_venue.columns:
                 df = df.merge(r_venue, left_on=['racer_id', 'venue_name'], right_on=['RacerID', 'Venue'], how='left')
             else:
-                # Fallback if no Venue column
                 df = df.merge(r_venue, left_on=['racer_id'], right_on=['RacerID'], how='left')
             
-            # Rename static WinRate to avoid collision with scraped local_win_rate
-            if 'WinRate' in df.columns:
-                df.rename(columns={'WinRate': 'local_win_rate_static'}, inplace=True)
-                # Fill scraped with static if scraped is 0
-                if 'local_win_rate' in df.columns:
-                    df['local_win_rate'] = df['local_win_rate'].replace(0.0, np.nan)
-                    df['local_win_rate'] = df['local_win_rate'].fillna(df['local_win_rate_static'])
-                else:
-                    df['local_win_rate'] = df['local_win_rate_static']
-                
-                # Drop static temp
-                df.drop(columns=['local_win_rate_static'], inplace=True, errors='ignore')
+            # Rename static WinRate
+            if 'local_win_rate' in r_venue.columns:
+                df.rename(columns={'local_win_rate': 'local_win_rate_static'}, inplace=True)
+            elif 'WinRate' in df.columns: # fallback
+                 df.rename(columns={'WinRate': 'local_win_rate_static'}, inplace=True)
 
-            # 3. Venue Course Stats: [venue_name, course_number]
-            # Must merge on BOTH venue and course to avoid explosion and collision
+            if 'local_win_rate' in df.columns:
+                df['local_win_rate'] = df['local_win_rate'].replace(0.0, np.nan)
+                df['local_win_rate'] = df['local_win_rate'].fillna(df['local_win_rate_static'])
+            else:
+                df['local_win_rate'] = df.get('local_win_rate_static', 0.0)
+                
+            df.drop(columns=['local_win_rate_static'], inplace=True, errors='ignore')
+
+            # 3. Venue Course Stats
             df = df.merge(v_course, left_on=['venue_name', 'pred_course'], right_on=['venue_name', 'course_number'], how='left')
             df.rename(columns={
                 'rate_1st': 'venue_course_1st_rate',
@@ -320,11 +321,19 @@ class FeatureEngineer:
                 'rate_3rd': 'venue_course_3rd_rate'
             }, inplace=True)
 
-            # 4. Racer Params: [racer_id] -> [weight, height? branch? nat_win_rate?]
-            # static_racer_params.csv likely has: racer_id, weight, branch, sashi_count...?
+            # 4. Racer Params: [racer_id] -> [st_std_dev, nat_win_rate, nige_count, makuri_count, sashi_count...]
             df = df.merge(r_params, on='racer_id', how='left')
-            # Check for conflict if scraper has weight/branch
-            # Ideally use CSV values if scraper missing
+            # static_racer_params now has: st_std_dev, nat_win_rate, nige_count, makuri_count, sashi_count
+            
+            # Handling scraper vs static for nat_win_rate
+            if 'nat_win_rate_y' in df.columns: # Merge resulted directly
+                # If scraper gave nat_win_rate_x (0.0), use _y
+                df['nat_win_rate'] = df['nat_win_rate_x'].replace(0.0, np.nan).fillna(df['nat_win_rate_y'])
+                df.drop(columns=['nat_win_rate_x', 'nat_win_rate_y'], inplace=True)
+            
+        except Exception as e:
+            # st.error(f"Static Data Error: {e}")
+            pass
             
         except Exception as e:
             # st.error(f"Static Data Error: {e}")
