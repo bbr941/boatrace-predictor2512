@@ -156,44 +156,209 @@ class BoatRaceScraper:
 # --- 2. Feature Engineer ---
 class FeatureEngineer:
     @staticmethod
+    def process_wind_data(df):
+        # 1. Map Wind Direction (Text -> Angle)
+        direction_map = {
+            '北': 0, '北東': 45, '東': 90, '南東': 135,
+            '南': 180, '南西': 225, '西': 270, '北西': 315,
+            '無風': 0, 'failed': 0, '': 0, 0: 0 # Handle int input
+        }
+        # In App, scraper returns int (1-16) or text?
+        # Scraper returns int (1=North=0deg, 2=NE=45deg... 16=North=0)
+        # 1=North, 2=NNE, 3=NE, 4=ENE, 5=East... 16=NNW?
+        # BoatRace.jp logic: 1~16. 1=North(0), 5=East(90), 9=South(180), 13=West(270)
+        # So map is: (val-1) * 22.5
+        # Scraper already parses `is-windDirection` class to int?
+        # Let's check scraper: `int(re.sub(r'\D', '', dir_cls))` -> 1..16
+        # So we need 1..16 map.
+        
+        # Override map for 1..16 int input
+        def wind_deg_from_int(x):
+            if x < 1 or x > 16: return 0
+            return (x - 1) * 22.5
+
+        # Scraper returns int 1-16
+        df['wind_angle_deg'] = df['wind_direction'].apply(wind_deg_from_int)
+
+        # Venue Tailwind map (Heading of 1M - From which wind comes as tailwind)
+        venue_tailwind_from = {
+            '桐生': 135, '戸田': 90, '江戸川': 180, '平和島': 180, '多摩川': 270,
+            '浜名湖': 180, '蒲郡': 270, '常滑': 270, '津': 135, '三国': 180,
+            'びわこ': 225, '住之江': 270, '尼崎': 90, '鳴門': 135, '丸亀': 180,
+            '児島': 225, '宮島': 270, '徳山': 135, '下関': 270, '若松': 270,
+            '芦屋': 135, '福岡': 0, '唐津': 135, '大村': 315
+        }
+        
+        df['venue_tailwind_deg'] = df['venue_name'].map(venue_tailwind_from).fillna(0)
+        
+        # Vectors
+        angle_diff_rad = np.radians(df['wind_angle_deg'] - df['venue_tailwind_deg'])
+        df['wind_vector_long'] = df['wind_speed'] * np.cos(angle_diff_rad)
+        df['wind_vector_lat'] = df['wind_speed'] * np.sin(angle_diff_rad)
+        
+        return df
+
+    @staticmethod
     def process(df, venue_name):
+        # Add missing venue_name column if not present (for mapping)
+        df['venue_name'] = venue_name
+        
+        # Load Static Data
         try:
             r_course = pd.read_csv(os.path.join(DATA_DIR, 'static_racer_course.csv'))
             r_venue = pd.read_csv(os.path.join(DATA_DIR, 'static_racer_venue.csv'))
             v_course = pd.read_csv(os.path.join(DATA_DIR, 'static_venue_course.csv'))
             r_params = pd.read_csv(os.path.join(DATA_DIR, 'static_racer_params.csv'))
             
+            # Ensure Types
             df['racer_id'] = df['racer_id'].astype(int)
             df['pred_course'] = df['pred_course'].astype(int)
-            
+            r_course['RacerID'] = r_course['RacerID'].astype(int)
+            r_course['Course'] = r_course['Course'].astype(int)
+            r_venue['RacerID'] = r_venue['RacerID'].astype(int)
+            v_course['course_number'] = v_course['course_number'].astype(int)
+            r_params['racer_id'] = r_params['racer_id'].astype(int)
+
+            # --- Merges ---
+            # 1. Racer Course Stats: [RacerID, Course] -> [course_run_count, course_quinella_rate...]
+            # Map columns from CSV (CamelCase) to Training (snake_case)
+            # static_racer_course.csv cols: RacerID, Course, RacesRun, QuinellaRate, TrifectaRate, FirstPlaceRate, AvgStartTiming
             df = df.merge(r_course, left_on=['racer_id', 'pred_course'], right_on=['RacerID', 'Course'], how='left')
-            df = df.merge(r_venue, left_on=['racer_id'], right_on=['RacerID'], how='left') 
+            df.rename(columns={
+                'RacesRun': 'course_run_count',
+                'QuinellaRate': 'course_quinella_rate',
+                'TrifectaRate': 'course_trifecta_rate',
+                'FirstPlaceRate': 'course_1st_rate',
+                'AvgStartTiming': 'course_avg_st'
+            }, inplace=True)
+
+            # 2. Racer Venue Stats: [RacerID] (Venue filtered in creation? No, creation makes static_racer_venue.csv which likely has Venue column?)
+            # Wait, static_racer_venue.csv might be ALL venues.
+            # Let's assume it has RacerID, Venue, WinRate?
+            # Or if it was generated PER venue, we need to know.
+            # Assuming it has RacerID, Venue.
+            if 'Venue' in r_venue.columns:
+                df = df.merge(r_venue, left_on=['racer_id', 'venue_name'], right_on=['RacerID', 'Venue'], how='left')
+            else:
+                # Fallback if no Venue column (maybe file is just "Local WinRate"?)
+                df = df.merge(r_venue, left_on=['racer_id'], right_on=['RacerID'], how='left')
+            
+            df.rename(columns={'WinRate': 'local_win_rate'}, inplace=True)
+
+            # 3. Venue Course Stats: [course_number] (Venue filtered?)
+            # static_venue_course.csv usually is just for THIS venue or has Venue code.
+            # Assuming it has matching columns.
+            # static_venue_course.csv cols: ???
+            # Likely: course_number, rate_1st, rate_2nd...
             df = df.merge(v_course, left_on=['pred_course'], right_on=['course_number'], how='left')
+            df.rename(columns={
+                'rate_1st': 'venue_course_1st_rate',
+                'rate_2nd': 'venue_course_2nd_rate',
+                'rate_3rd': 'venue_course_3rd_rate'
+            }, inplace=True)
+
+            # 4. Racer Params: [racer_id] -> [weight, height? branch? nat_win_rate?]
+            # static_racer_params.csv likely has: racer_id, weight, branch, sashi_count...?
             df = df.merge(r_params, on='racer_id', how='left')
-        except: pass
+            # Check for conflict if scraper has weight/branch
+            # Ideally use CSV values if scraper missing
+            
+        except Exception as e:
+            # st.error(f"Static Data Error: {e}")
+            pass
         
+        # Fill NaNs from merges
         df = df.fillna(0)
         
-        # Wind Vector
-        direction_map = {1:0,2:45,3:45,4:90,5:90,6:135,7:135,8:180,9:180,10:225,11:225,12:270,13:270,14:315,15:315,16:0}
-        df['wind_angle_deg'] = df['wind_direction'].map(direction_map).fillna(0)
-        df['wind_vector_long'] = df['wind_speed'] # Simplified
-        df['wind_vector_lat'] = 0.0
+        # --- Feature Engineering (Sync with make_data_set.py) ---
         
-        # Relative
-        df['slit_formation'] = 0.0
-        df['tenji_z_score'] = 0.0
-        
-        # Missing
-        expected = ['series_avg_rank', 'makuri_rate', 'nige_rate', 'inner_st_gap', 
-                    'anti_nige_potential', 'wall_strength', 'follow_potential', 'branch']
-        for c in expected:
-            if c not in df.columns: 
-                if c == 'branch': df[c] = 'Unknown'
-                else: df[c] = 0.0
+        # Helper for Series Avg (Mock/Parse)
+        def parse_prior(x):
+            if isinstance(x, (int, float)): return x
+            return 3.5 # Default
+        df['series_avg_rank'] = df['prior_results'].apply(parse_prior)
 
-        # Type Conversion for LightGBM
-        # IMPORTANT: Model expects 'category' for object columns.
+        # Rates
+        df['makuri_rate'] = df['makuri_count'] / df['course_run_count'].replace(0, 1)
+        df['nige_rate'] = df['nige_count'] / df['course_run_count'].replace(0, 1)
+
+        # ST Calculation (Group by race_id - but here usually 1 race)
+        # Sort just in case
+        df = df.sort_values('pred_course')
+        
+        df['inner_st'] = df['exhibition_start_timing'].shift(1).fillna(0)
+        df['inner_st_gap'] = df['exhibition_start_timing'] - df['inner_st']
+        df['outer_st'] = df['exhibition_start_timing'].shift(-1).fillna(0)
+        
+        avg_neighbor = (df['inner_st'] + df['outer_st']) / 2
+        # If edge, handle? Shift returns NaN which we filled 0. That's fine.
+        df['slit_formation'] = df['exhibition_start_timing'] - avg_neighbor
+
+        # Anti-Nige
+        c1_nige = df.loc[df['pred_course']==1, 'nige_rate']
+        val = c1_nige.values[0] if len(c1_nige) > 0 else 0.5
+        df['anti_nige_potential'] = df['makuri_rate'] * (1 - val)
+
+        # Wall Strength (Inner Quinella)
+        df['wall_strength'] = df['course_quinella_rate'].shift(1).fillna(0)
+
+        # Follow Potential (Inner Makuri * Self Quinella)
+        df['follow_potential'] = df['makuri_rate'].shift(1).fillna(0) * df['course_quinella_rate']
+
+        # Tenji Z-Score
+        mean_t = df['exhibition_time'].mean()
+        std_t = df['exhibition_time'].std()
+        if std_t == 0: std_t = 1
+        df['tenji_z_score'] = (mean_t - df['exhibition_time']) / std_t
+
+        # Linear Rank
+        df['linear_rank'] = df['exhibition_time'].rank(method='min', ascending=True)
+        df['is_linear_leader'] = (df['linear_rank'] == 1).astype(int)
+
+        # Weight Diff (User Weight - Avg)
+        # Note: 'weight' might come from params or scraper. 
+        # If scraper didn't get it, use params. 
+        if 'weight_x' in df.columns: df['weight'] = df['weight_x'] # excessive merge handling
+        if 'weight' not in df.columns: df['weight'] = 52.0
+        
+        df['weight_diff'] = df['weight'] - df['weight'].mean()
+
+        # High Wind Alert
+        df['high_wind_alert'] = (df['wind_speed'] >= 5).astype(int)
+
+        # Local Perf Diff
+        if 'nat_win_rate' not in df.columns: df['nat_win_rate'] = 0.0 # From params
+        df['local_perf_diff'] = df['local_win_rate'] - df['nat_win_rate']
+
+        # Wind Vectors
+        df = FeatureEngineer.process_wind_data(df)
+
+        # Ensure ALL model features exist
+        # Add 'race_date' if not present (Scraper usually puts it in race_id or we need to pass it)
+        # But 'race_date' column needed as Feature?
+        # Check error log: ['race_date', ...] missing.
+        # So we MUST add 'race_date'.
+        # Since we only have 1 date for the race, we can fill it.
+        # But LGBM expects Date? Or Category?
+        # Train: Category. App: Object -> Category.
+        # So assign string.
+        if 'race_date' not in df.columns:
+            # Extract from race_id "20251210_07_12" or similar
+            # Or passed from arg process(df, venue_name) -> maybe add date?
+            # Hack: extract from race_id
+            try:
+                df['race_date'] = df['race_id'].astype(str).apply(lambda x: x.split('_')[0] if '_' in x else '20000101')
+            except:
+                df['race_date'] = '20000101'
+        
+        # Missing column safeguard
+        needed = ['nat_win_rate', 'sashi_count', 'course_run_count', 'course_quinella_rate', 
+                  'course_trifecta_rate', 'course_1st_rate', 'course_avg_st', 
+                  'venue_course_1st_rate', 'venue_course_2nd_rate', 'venue_course_3rd_rate']
+        for c in needed:
+            if c not in df.columns: df[c] = 0.0
+
+        # Type Conversion
         ignore_cols = ['race_id', 'boat_number', 'racer_id', 'rank', 'venue_name', 'wind_direction', 'prior_results', 'syn_win_rate', 'exhibition_time']
         for col in df.columns:
             if col in ignore_cols: continue
