@@ -24,14 +24,19 @@ HEADERS = {
 class BoatRaceScraper:
     @staticmethod
     def get_soup(url):
-        try:
-            resp = requests.get(url, headers=HEADERS, timeout=10)
-            resp.raise_for_status()
-            resp.encoding = resp.apparent_encoding
-            return BeautifulSoup(resp.text, 'html.parser')
-        except Exception as e:
-            st.error(f"Error fetching URL {url}: {e}")
-            return None
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                resp = requests.get(url, headers=HEADERS, timeout=30)
+                resp.raise_for_status()
+                resp.encoding = resp.apparent_encoding
+                return BeautifulSoup(resp.text, 'html.parser')
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    st.error(f"Error fetching URL {url} after {max_retries} attempts: {e}")
+                    return None
+                time.sleep(2) # Wait 2s before retry
+        return None
 
     @staticmethod
     def parse_float(text):
