@@ -477,9 +477,15 @@ if st.button("Analyze Race", type="primary"):
                 model = lgb.Booster(model_file=MODEL_PATH)
                 
                 # Align columns
+                # Align columns
                 model_feats = model.feature_name()
-                X_pred = df_feat[model_feats]
                 
+                # --- Display Input Data ---
+                st.subheader("📊 Model Input Features")
+                st.dataframe(df_feat[model_feats])
+                
+                # Predict
+                X_pred = df_feat[model_feats]
                 preds = model.predict(X_pred)
                 df_feat['score'] = preds
                 
@@ -491,24 +497,30 @@ if st.button("Analyze Race", type="primary"):
                 st.subheader("🤖 AI Prediction Ranking")
                 st.dataframe(rank_df.set_index('rank'))
                 
-                # Top 5
-                st.subheader("🎯 Top 5 Strategy")
-                # Simple permutation of top 3 boats
-                boats = rank_df['boat_number'].tolist()
-                import itertools
                 scores = dict(zip(rank_df['boat_number'], rank_df['score']))
+                boats_sorted = rank_df['boat_number'].tolist()
                 
-                if len(boats) >= 3:
-                    combos = list(itertools.permutations(boats, 3))
-                    c_list = []
-                    for c in combos:
-                        # Product of scores as metric
-                        s = scores[c[0]] * scores[c[1]] * scores[c[2]]
-                        c_list.append({'combo': f"{c[0]}-{c[1]}-{c[2]}", 'val': s})
-                    
-                    df_c = pd.DataFrame(c_list).sort_values('val', ascending=False).head(5)
-                    for i, row in df_c.iterrows():
-                        st.metric(f"Rank {i+1}", row['combo'])
+                # Generate Top Trifecta Combinations
+                import itertools
+                combos = list(itertools.permutations(boats_sorted, 3))
+                c_list = []
+                for c in combos:
+                    # Score metric: Product of individual scores
+                    s = scores[c[0]] * scores[c[1]] * scores[c[2]]
+                    c_list.append({'combo': f"{c[0]}-{c[1]}-{c[2]}", 'val': s, 'p1': c[0]})
+                
+                df_c = pd.DataFrame(c_list).sort_values('val', ascending=False)
+                
+                # Strategy 1: Honmei (Top 5 Overall)
+                st.subheader("🎯 Main Strategy (Honmei)")
+                # Use enumerate to get 1,2,3... rank instead of shuffled index
+                for i, (_, row) in enumerate(df_c.head(5).iterrows()):
+                    label = f"Rank {i+1}"
+                    if i == 0:
+                        label += " 🔥 (50倍以上なら勝負時)"
+                        st.success(f"{label}: {row['combo']}")
+                    else:
+                        st.metric(label, row['combo'])
             except Exception as e:
                 st.error(f"AI Model Error: {e}")
         else:
