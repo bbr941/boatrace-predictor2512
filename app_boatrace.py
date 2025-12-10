@@ -412,9 +412,29 @@ class FeatureEngineer:
         # --- Feature Engineering (Sync with make_data_set.py) ---
         
         # Helper for Series Avg (Mock/Parse)
+        # Helper for Series Avg (Mock/Parse)
         def parse_prior(x):
-            if isinstance(x, (int, float)): return x
-            return 3.5 # Default
+            if isinstance(x, (int, float)): return float(x)
+            if not isinstance(x, str): return 3.5
+            
+            # Text usually "1 3 2 4" or "1 3F 2"
+            try:
+                # Replace commonly used non-digit rank markers if any
+                x = x.replace('欠', '').replace('失', '').replace('F', '').replace('L', '').replace('S', '')
+                parts = x.split()
+                ranks = []
+                for p in parts:
+                    try:
+                        val = float(p)
+                        if 1 <= val <= 6: ranks.append(val)
+                    except: pass
+                
+                if ranks:
+                    return sum(ranks) / len(ranks)
+            except: pass
+            
+            return 3.5 # Default fallback
+
         df['series_avg_rank'] = df['prior_results'].apply(parse_prior)
 
         # Rates
