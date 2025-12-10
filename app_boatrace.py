@@ -342,6 +342,11 @@ class FeatureEngineer:
         # Fill NaNs from merges
         df = df.fillna(0)
         
+        # Failsafe: Ensure critical columns exist (even if CSV merge failed)
+        required_cols = ['makuri_count', 'nige_count', 'sashi_count', 'nat_win_rate', 'course_run_count']
+        for c in required_cols:
+            if c not in df.columns: df[c] = 0.0
+        
         # --- Feature Engineering (Sync with make_data_set.py) ---
         
         # Helper for Series Avg (Mock/Parse)
