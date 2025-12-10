@@ -295,10 +295,21 @@ class FeatureEngineer:
             if 'Venue' in r_venue.columns:
                 df = df.merge(r_venue, left_on=['racer_id', 'venue_name'], right_on=['RacerID', 'Venue'], how='left')
             else:
-                # Fallback if no Venue column (maybe file is just "Local WinRate"?)
+                # Fallback if no Venue column
                 df = df.merge(r_venue, left_on=['racer_id'], right_on=['RacerID'], how='left')
             
-            df.rename(columns={'WinRate': 'local_win_rate'}, inplace=True)
+            # Rename static WinRate to avoid collision with scraped local_win_rate
+            if 'WinRate' in df.columns:
+                df.rename(columns={'WinRate': 'local_win_rate_static'}, inplace=True)
+                # Fill scraped with static if scraped is 0
+                if 'local_win_rate' in df.columns:
+                    df['local_win_rate'] = df['local_win_rate'].replace(0.0, np.nan)
+                    df['local_win_rate'] = df['local_win_rate'].fillna(df['local_win_rate_static'])
+                else:
+                    df['local_win_rate'] = df['local_win_rate_static']
+                
+                # Drop static temp
+                df.drop(columns=['local_win_rate_static'], inplace=True, errors='ignore')
 
             # 3. Venue Course Stats: [venue_name, course_number]
             # Must merge on BOTH venue and course to avoid explosion and collision
@@ -379,7 +390,13 @@ class FeatureEngineer:
         df['high_wind_alert'] = (df['wind_speed'] >= 5).astype(int)
 
         # Local Perf Diff
-        if 'nat_win_rate' not in df.columns: df['nat_win_rate'] = 0.0 # From params
+        if 'nat_win_rate' not in df.columns: df['nat_win_rate'] = 0.0 
+        if 'local_win_rate' not in df.columns: df['local_win_rate'] = 0.0
+        
+        # Ensure Types
+        df['nat_win_rate'] = pd.to_numeric(df['nat_win_rate'], errors='coerce').fillna(0.0)
+        df['local_win_rate'] = pd.to_numeric(df['local_win_rate'], errors='coerce').fillna(0.0)
+
         df['local_perf_diff'] = df['local_win_rate'] - df['nat_win_rate']
 
         # Wind Vectors
