@@ -10,6 +10,8 @@ import re
 import time
 
 # --- Configuration ---
+st.set_page_config(page_title="BoatRace AI Predictor", layout="wide")
+
 MODEL_PATH = 'lgb_ranker.txt'
 DATA_DIR = 'app_data'
 
@@ -284,7 +286,9 @@ class FeatureEngineer:
         return df, ignore_cols
 
 # --- 3. Main App ---
-st.set_page_config(page_title="BoatRace AI Predictor", layout="wide")
+# --- 3. Main App ---
+# st.set_page_config moved to top
+
 
 st.title("🚤 BoatRace AI Strategy: 'Structure & Value'")
 st.markdown("Returns-Focused AI Prediction System")
