@@ -516,13 +516,26 @@ venue_code = st.sidebar.selectbox("Venue", list(venue_map.keys()), format_func=l
 venue_name = venue_map[venue_code]
 race_no = st.sidebar.selectbox("Race No", range(1, 13))
 
+# Main Logic
+debug_mode = st.sidebar.checkbox("Show Debug Info", value=False)
+
 if st.button("Analyze Race", type="primary"):
-    date_str = target_date.strftime('%Y%m%d')
-    st.info(f"Fetching Data: {venue_name} {race_no}R ({date_str})")
+    st.session_state['run_analysis'] = True
+    st.session_state['target_props'] = {
+        'date': target_date.strftime('%Y%m%d'),
+        'venue': venue_code,
+        'race': race_no,
+        'v_name': venue_name
+    }
+
+if st.session_state.get('run_analysis'):
+    props = st.session_state['target_props']
+    
+    st.info(f"Fetching Data: {props['v_name']} {props['race']}R ({props['date']})")
     
     # 1. Scrape
     with st.spinner("Scraping..."):
-        df_race = BoatRaceScraper.get_race_data(date_str, venue_code, race_no)
+        df_race = BoatRaceScraper.get_race_data(props['date'], props['venue'], props['race'])
     
     if df_race is not None:
         st.subheader("Live Race Data")
@@ -531,7 +544,7 @@ if st.button("Analyze Race", type="primary"):
         
         # 2. Features
         with st.spinner("Processing..."):
-            df_feat = FeatureEngineer.process(df_race, venue_name)
+            df_feat = FeatureEngineer.process(df_race, props['v_name'], debug_mode=debug_mode)
             
         # 3. Predict
         if os.path.exists(MODEL_PATH):
