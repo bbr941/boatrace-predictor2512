@@ -175,27 +175,30 @@ class BoatRaceScraper:
                 except: pass
 
                 # Prior Results (Series Results)
-                # Scan all TDs for Rank-like patterns (1-6, full-width １-６, F, L, etc.)
-                # Ignore ST (.12) and R (8R)
+                # Scan specifically for "Race Number" cells (e.g. "12R") and take the cell 3 indexes later (Rank)
+                # This avoids picking up "Course" (Index+1) or "ST" (Index+2) or duplicate columns.
                 prior_results_list = []
                 try:
                     all_tds = tb.select("td")
-                    # Start from col 15 to avoid left-side stats
-                    start_idx = 15 if len(all_tds) > 15 else 0
-                    
-                    for td in all_tds[start_idx:]:
+                    # Flexible scan
+                    for idx in range(len(all_tds) - 3):
+                        td = all_tds[idx]
                         txt = td.get_text(strip=True)
-                        if not txt: continue
                         
-                        # Check format: Single/Double char, 1-6 or FLK
-                        # Normalize Full-width
-                        txt_norm = txt.translate(str.maketrans({chr(0xFF01 + i): chr(0x21 + i) for i in range(94)}))
-                        
-                        # Regex for strictly rank: 1-6, F, L, K, S, 欠, 失
-                        # Exclude ".12" (ST) or "8R" or "12/10"
-                        if re.match(r'^[1-6FLKS欠失]$', txt_norm):
-                            prior_results_list.append(txt_norm)
+                        # Check for Anchor "12R", "5R"
+                        if re.match(r'^\d+R$', txt):
+                            # Target Rank is usually at +3
+                            # Layout: [R] [Course] [ST] [Rank]
+                            target_td = all_tds[idx+3]
+                            target_txt = target_td.get_text(strip=True)
                             
+                            # Normalize Full-width digits in the target cell
+                            target_norm = target_txt.translate(str.maketrans({chr(0xFF01 + i): chr(0x21 + i) for i in range(94)}))
+                            
+                            # Verify it looks like a Rank
+                            if re.match(r'^[1-6FLKS欠失]$', target_norm):
+                                prior_results_list.append(target_norm)
+
                     prior_results = " ".join(prior_results_list)
                 except: pass
 
