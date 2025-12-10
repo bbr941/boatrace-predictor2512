@@ -473,7 +473,7 @@ if st.button("Analyze Race", type="primary"):
     
     if df_race is not None:
         st.subheader("Live Race Data")
-        cols = ['boat_number', 'racer_id', 'motor_rate', 'exhibition_time', 'exhibition_start_timing', 'wind_speed']
+        cols = ['boat_number', 'racer_id', 'branch', 'weight', 'motor_rate', 'exhibition_time', 'exhibition_start_timing', 'wind_speed']
         st.dataframe(df_race[cols])
         
         # 2. Features
