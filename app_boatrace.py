@@ -363,14 +363,28 @@ class FeatureEngineer:
             }, inplace=True)
 
             # 4. Racer Params: [racer_id] -> [st_std_dev, nat_win_rate, nige_count, makuri_count, sashi_count...]
+            # Drop likely colliding scraper columns to prioritize static data
+            drop_cols = ['nige_count', 'makuri_count', 'sashi_count', 'nat_win_rate', 'st_std_dev']
+            for c in drop_cols:
+                if c in df.columns: df.drop(columns=[c], inplace=True)
+
             df = df.merge(r_params, on='racer_id', how='left')
-            # static_racer_params now has: st_std_dev, nat_win_rate, nige_count, makuri_count, sashi_count
             
-            # Handling scraper vs static for nat_win_rate
-            if 'nat_win_rate_y' in df.columns: # Merge resulted directly
-                # If scraper gave nat_win_rate_x (0.0), use _y
-                df['nat_win_rate'] = df['nat_win_rate_x'].replace(0.0, np.nan).fillna(df['nat_win_rate_y'])
-                df.drop(columns=['nat_win_rate_x', 'nat_win_rate_y'], inplace=True)
+            # Post-Merge Cleanup: Consolidate _x/_y if they appeared due to missed conflicting cols
+            # Check for suffixed cols and coalesce
+            cleanup_targets = ['nige_count', 'makuri_count', 'sashi_count', 'nat_win_rate', 'local_win_rate']
+            for t in cleanup_targets:
+                x_col = f"{t}_x"
+                y_col = f"{t}_y"
+                if x_col in df.columns and y_col in df.columns:
+                    # Prefer Y (Static usually) if X is 0/NaN
+                    df[t] = df[y_col].fillna(df[x_col])
+                    df.drop(columns=[x_col, y_col], inplace=True)
+                elif x_col in df.columns:
+                    df.rename(columns={x_col: t}, inplace=True)
+                elif y_col in df.columns:
+                    df.rename(columns={y_col: t}, inplace=True)
+                # If neither, 't' might already exist or be missing (handled by failsafe)
             
         except Exception as e:
             # st.error(f"Static Data Error: {e}")
