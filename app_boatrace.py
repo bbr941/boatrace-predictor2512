@@ -245,12 +245,9 @@ class FeatureEngineer:
             
             df.rename(columns={'WinRate': 'local_win_rate'}, inplace=True)
 
-            # 3. Venue Course Stats: [course_number] (Venue filtered?)
-            # static_venue_course.csv usually is just for THIS venue or has Venue code.
-            # Assuming it has matching columns.
-            # static_venue_course.csv cols: ???
-            # Likely: course_number, rate_1st, rate_2nd...
-            df = df.merge(v_course, left_on=['pred_course'], right_on=['course_number'], how='left')
+            # 3. Venue Course Stats: [venue_name, course_number]
+            # Must merge on BOTH venue and course to avoid explosion and collision
+            df = df.merge(v_course, left_on=['venue_name', 'pred_course'], right_on=['venue_name', 'course_number'], how='left')
             df.rename(columns={
                 'rate_1st': 'venue_course_1st_rate',
                 'rate_2nd': 'venue_course_2nd_rate',
