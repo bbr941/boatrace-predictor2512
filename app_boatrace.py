@@ -126,10 +126,25 @@ class BoatRaceScraper:
                 branch = 'Unknown'
                 weight = 52.0
                 try:
-                    txt = tb.select("td")[2].get_text(separator=' ')
-                    # "4350 篠崎 仁志 埼玉 52.0kg ..."
-                    match = re.search(r'(\d{2}\.\d)kg', txt)
-                    if match: weight = float(match.group(1))
+                    td2 = tb.select("td")[2]
+                    txt_full = td2.get_text(" ", strip=True)
+                    
+                    # Weight
+                    match_w = re.search(r'(\d{2}\.\d)kg', txt_full)
+                    if match_w: weight = float(match_w.group(1))
+                    
+                    # Branch: 2nd DIV usually has "Tokyo A1"
+                    divs = td2.select("div")
+                    if len(divs) >= 2:
+                        br_txt = divs[1].get_text(strip=True)
+                        # Extract first word (valid branch)
+                        # e.g. "Saitama A1" -> Saitama
+                        # Remove digits just in case
+                        branch = re.sub(r'\d+', '', br_txt.split()[0])
+                    else:
+                        # Fallback
+                        m = re.search(r'([^\x00-\x7F]+)(?:A1|A2|B1|B2)', txt_full)
+                        if m: branch = m.group(1).strip()
                 except: pass
 
                 # Win Rates (National & Local)
