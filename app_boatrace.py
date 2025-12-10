@@ -1,3 +1,6 @@
+import os
+# Force single thread BEFORE importing LightGBM to prevent crashes on Streamlit Cloud
+os.environ['OMP_NUM_THREADS'] = '1'
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,9 +8,15 @@ import lightgbm as lgb
 import requests
 from bs4 import BeautifulSoup
 import datetime
-import os
 import re
 import time
+import sys
+
+# Debug logging
+def log(msg):
+    print(f"[DEBUG] {msg}", file=sys.stdout, flush=True)
+
+log("App starting...")
 
 # --- Configuration ---
 st.set_page_config(page_title="BoatRace AI Predictor", layout="wide")
