@@ -175,11 +175,28 @@ class BoatRaceScraper:
                 except: pass
 
                 # Prior Results (Series Results)
-                # Usually the last column or Col 8
-                prior_results = ""
+                # Scan all TDs for Rank-like patterns (1-6, full-width １-６, F, L, etc.)
+                # Ignore ST (.12) and R (8R)
+                prior_results_list = []
                 try:
-                    # Last column
-                    prior_results = tb.select("td")[-1].get_text(" ", strip=True)
+                    all_tds = tb.select("td")
+                    # Start from col 15 to avoid left-side stats
+                    start_idx = 15 if len(all_tds) > 15 else 0
+                    
+                    for td in all_tds[start_idx:]:
+                        txt = td.get_text(strip=True)
+                        if not txt: continue
+                        
+                        # Check format: Single/Double char, 1-6 or FLK
+                        # Normalize Full-width
+                        txt_norm = txt.translate(str.maketrans({chr(0xFF01 + i): chr(0x21 + i) for i in range(94)}))
+                        
+                        # Regex for strictly rank: 1-6, F, L, K, S, 欠, 失
+                        # Exclude ".12" (ST) or "8R" or "12/10"
+                        if re.match(r'^[1-6FLKS欠失]$', txt_norm):
+                            prior_results_list.append(txt_norm)
+                            
+                    prior_results = " ".join(prior_results_list)
                 except: pass
 
                 # Rates
