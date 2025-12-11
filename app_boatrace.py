@@ -307,6 +307,9 @@ class FeatureEngineer:
             v_course['course_number'] = v_course['course_number'].astype(int)
             r_params['racer_id'] = r_params['racer_id'].astype(int)
 
+            # Drop Scraper Placeholders to avoid collision with Course Stats
+            df.drop(columns=['nige_count', 'makuri_count', 'sashi_count'], inplace=True, errors='ignore')
+
             # --- Merges ---
             # 1. Racer Course Stats: [RacerID, Course] -> [course_run_count, course_quinella_rate...]
             # static_racer_course.csv cols: RacerID, Course, RacesRun, QuinellaRate, TrifectaRate, FirstPlaceRate, Nige, Makuri, Sashi
@@ -321,9 +324,9 @@ class FeatureEngineer:
                 # export_racer_course_stats selected: RacesRun, QuinellaRate, TrifectaRate, FirstPlaceRate, Nige, Makuri, Sashi.
                 # It missed AvgStartTiming? 
                 # I should assume course_avg_st is 0.17 if missing. Or scrape it?
-                'Nige': 'nige_count_course', # conflict with global? No, app uses global nige_count?
-                'Makuri': 'makuri_count_course',
-                'Sashi': 'sashi_count_course'
+                'Nige': 'nige_count', 
+                'Makuri': 'makuri_count',
+                'Sashi': 'sashi_count'
             }, inplace=True)
 
             # 2. Racer Venue Stats
@@ -374,11 +377,16 @@ class FeatureEngineer:
                 'rate_3rd': 'venue_course_3rd_rate'
             }, inplace=True)
 
-            # 4. Racer Params: [racer_id] -> [st_std_dev, nat_win_rate, nige_count, makuri_count, sashi_count...]
+            # 4. Racer Params: [racer_id] -> [st_std_dev, nat_win_rate...]
             # Drop likely colliding scraper columns to prioritize static data
-            drop_cols = ['nige_count', 'makuri_count', 'sashi_count', 'nat_win_rate', 'st_std_dev']
+            # NOTE: We keep nige/makuri/sashi from r_course (Step 1) so don't drop them here.
+            drop_cols = ['nat_win_rate', 'st_std_dev']
             for c in drop_cols:
                 if c in df.columns: df.drop(columns=[c], inplace=True)
+            
+            # Drops these from r_params so they don't overwrite r_course values
+            exclude_params = ['nige_count', 'makuri_count', 'sashi_count']
+            r_params = r_params.drop(columns=exclude_params, errors='ignore')
 
             df = df.merge(r_params, on='racer_id', how='left')
             
