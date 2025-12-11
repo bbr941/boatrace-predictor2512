@@ -174,32 +174,24 @@ class BoatRaceScraper:
                         local_win_rate = float(nums[2])
                 except: pass
 
-                # Prior Results (Series Results)
-                # Scan specifically for "Race Number" cells (e.g. "12R") and take the cell 3 indexes later (Rank)
-                # This avoids picking up "Course" (Index+1) or "ST" (Index+2) or duplicate columns.
-                prior_results_list = []
+                # Prior Results (Series Results) - Robust Logic
+                # Extract from "is-fBold" row which contains the ranks
+                prior_results = ""
                 try:
-                    all_tds = tb.select("td")
-                    # Flexible scan
-                    for idx in range(len(all_tds) - 3):
-                        td = all_tds[idx]
-                        txt = td.get_text(strip=True)
-                        
-                        # Check for Anchor "12R", "5R"
-                        if re.match(r'^\d+R$', txt):
-                            # Target Rank is usually at +3
-                            # Layout: [R] [Course] [ST] [Rank]
-                            target_td = all_tds[idx+3]
-                            target_txt = target_td.get_text(strip=True)
-                            
-                            # Normalize Full-width digits in the target cell
-                            target_norm = target_txt.translate(str.maketrans({chr(0xFF01 + i): chr(0x21 + i) for i in range(94)}))
-                            
-                            # Verify it looks like a Rank
-                            if re.match(r'^[1-6FLKS欠失]$', target_norm):
-                                prior_results_list.append(target_norm)
-
-                    prior_results = " ".join(prior_results_list)
+                    # Find the bold row (usually contains ranks)
+                    rank_row = tb.select_one("tr.is-fBold")
+                    if rank_row:
+                        res_texts = [td.get_text(strip=True) for td in rank_row.select("td")]
+                        cleaned_res = []
+                        for t in res_texts:
+                            if not t: continue
+                            # Normalize Zenkaku to Hankaku
+                            t_norm = t.translate(str.maketrans('０１２３４５６７８９', '0123456789'))
+                            # Filter valid ranks/status
+                            if re.match(r'^[1-6FLKS欠失転不]$', t_norm):
+                                cleaned_res.append(t_norm)
+                        # Join with Space for parse_prior compatibility
+                        prior_results = " ".join(cleaned_res)
                 except: pass
 
                 # Rates
