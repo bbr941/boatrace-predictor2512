@@ -88,10 +88,16 @@ class BoatRaceScraper:
                 if len(tds) >= 5:
                     boat_before[i+1] = {'ex_time': BoatRaceScraper.parse_float(tds[4].text), 'st': 0.20}
             # ST
-            for row in soup_before.select("table.is-w238 tbody tr"):
+            # ST & Pred Course
+            # The rows of table.is-w238 represent the Start Exhibition Course order (Inner -> Outer)
+            for idx, row in enumerate(soup_before.select("table.is-w238 tbody tr")):
                 bn_span = row.select_one("span.table1_boatImage1Number")
                 if bn_span:
                     b = int(bn_span.text.strip())
+                    
+                    # 0-indexed row -> 1-indexed course (1..6)
+                    pred_c = idx + 1
+                    
                     st_span = row.select_one("span.table1_boatImage1Time")
                     val = 0.20
                     if st_span:
@@ -108,8 +114,11 @@ class BoatRaceScraper:
                             # .12 -> 0.12
                             val = BoatRaceScraper.parse_float(txt_raw)
                             
-                    if b in boat_before: boat_before[b]['st'] = val
-                    else: boat_before[b] = {'st': val, 'ex_time': 6.8}
+                    if b not in boat_before:
+                        boat_before[b] = {'ex_time': 6.8}
+                    
+                    boat_before[b]['st'] = val
+                    boat_before[b]['pred_course'] = pred_c
         except: pass
 
         # Parse List
@@ -223,7 +232,7 @@ class BoatRaceScraper:
                     'boat_rate': boat,
                     'exhibition_time': boat_before.get(bn, {}).get('ex_time', 6.8),
                     'exhibition_start_timing': boat_before.get(bn, {}).get('st', 0.20),
-                    'pred_course': bn,
+                    'pred_course': boat_before.get(bn, {}).get('pred_course', bn),
                     'wind_direction': weather['wind_direction'],
                     'wind_speed': weather['wind_speed'],
                     'wave_height': weather['wave_height'],
