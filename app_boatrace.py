@@ -667,8 +667,7 @@ if st.session_state.get('run_analysis'):
                     himo_str = ",".join(map(str, himo))
                     st.markdown("**2. 1頭流しフォーメーション (6点)** - 1位を頭に、2〜4位をヒモへ")
                     st.info(f"Form: **{head} - {himo_str} - {himo_str}**")
-                    else:
-                        st.metric(label, row['combo'])
+
             except Exception as e:
                 st.error(f"AI Model Error: {e}")
         else:
