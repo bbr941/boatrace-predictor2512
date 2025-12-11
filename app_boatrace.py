@@ -634,8 +634,9 @@ if st.session_state.get('run_analysis'):
                 combos = list(itertools.permutations(boats_sorted, 3))
                 c_list = []
                 for c in combos:
-                    # Score metric: Product of individual scores
-                    s = scores[c[0]] * scores[c[1]] * scores[c[2]]
+                    # Score metric: Weighted Sum to prioritize 1st, then 2nd order
+                    # Weights: 1st=4, 2nd=2, 3rd=1
+                    s = (scores[c[0]] * 4) + (scores[c[1]] * 2) + (scores[c[2]] * 1)
                     c_list.append({'combo': f"{c[0]}-{c[1]}-{c[2]}", 'val': s, 'p1': c[0]})
                 
                 df_c = pd.DataFrame(c_list).sort_values('val', ascending=False)
