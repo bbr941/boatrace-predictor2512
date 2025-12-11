@@ -52,6 +52,40 @@ class BoatRaceScraper:
             return 0.0
 
     @staticmethod
+    def get_odds(date_str, venue_code, race_no):
+        jcd = f"{int(venue_code):02d}"
+        url = f"https://www.boatrace.jp/owpc/pc/race/oddstf?rno={race_no}&jcd={jcd}&hd={date_str}"
+        soup = BoatRaceScraper.get_soup(url)
+        odds_map = {}
+        if soup:
+            try:
+                # Tables with class is-w495 usually contain Tan/Fuku odds
+                tables = soup.select("table.is-w495")
+                target_table = None
+                for t in tables:
+                     if "単勝" in t.get_text():
+                         target_table = t
+                         break
+                
+                if target_table:
+                     rows = target_table.select("tbody tr")
+                     for row in rows:
+                         tds = row.select("td")
+                         # Usually BoatNo(0), Name(1), Odds(2)
+                         if len(tds) >= 3:
+                             try:
+                                 bn_txt = tds[0].get_text(strip=True)
+                                 bn = int(bn_txt)
+                                 val_txt = tds[2].get_text(strip=True)
+                                 val = float(val_txt)
+                                 if val > 0:
+                                     # Syn Win Rate = 1 / Win Odds
+                                     odds_map[bn] = 1.0 / val
+                             except: pass
+            except: pass
+        return odds_map
+
+    @staticmethod
     def get_race_data(date_str, venue_code, race_no):
         jcd = f"{int(venue_code):02d}"
         url_before = f"https://www.boatrace.jp/owpc/pc/race/beforeinfo?rno={race_no}&jcd={jcd}&hd={date_str}"
@@ -59,6 +93,9 @@ class BoatRaceScraper:
         
         soup_before = BoatRaceScraper.get_soup(url_before)
         soup_list = BoatRaceScraper.get_soup(url_list)
+        
+        # Fetch Real-Time Odds
+        odds_map = BoatRaceScraper.get_odds(date_str, venue_code, race_no)
         
         if not soup_before or not soup_list:
             return None
@@ -241,7 +278,8 @@ class BoatRaceScraper:
                     'weight': weight,
                     'nat_win_rate': nat_win_rate,
                     'local_win_rate': local_win_rate,
-                    'makuri_count': 0, 'nige_count': 0
+                    'makuri_count': 0, 'nige_count': 0,
+                    'syn_win_rate': odds_map.get(bn, 0.0)
                 }
                 rows.append(row)
         except Exception as e:
