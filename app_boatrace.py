@@ -648,7 +648,25 @@ if st.session_state.get('run_analysis'):
                     label = f"Rank {i+1}"
                     if i == 0:
                         label += " 🔥 (50倍以上なら勝負時)"
-                        st.success(f"{label}: {row['combo']}")
+                    st.success(f"{label}: {row['combo']}")
+
+                # Strategy 2: Recommended Formations
+                st.divider()
+                st.subheader("📦 おすすめフォーメーション（プロの定石）")
+                
+                # 1. 3-Boat Box
+                top3 = boats_sorted[:3]
+                st.markdown("**1. 3艇ボックス (6点)** - AI評価上位3艇の全通り")
+                st.info(f"BOX:  **{top3[0]}, {top3[1]}, {top3[2]}**")
+                
+                # 2. 1-Head Formation (1 - 234 - 234)
+                # Ensure we have enough boats
+                if len(boats_sorted) >= 4:
+                    head = boats_sorted[0]
+                    himo = boats_sorted[1:4] # 2nd, 3rd, 4th
+                    himo_str = ",".join(map(str, himo))
+                    st.markdown("**2. 1頭流しフォーメーション (6点)** - 1位を頭に、2〜4位をヒモへ")
+                    st.info(f"Form: **{head} - {himo_str} - {himo_str}**")
                     else:
                         st.metric(label, row['combo'])
             except Exception as e:
